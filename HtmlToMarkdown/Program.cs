@@ -5,35 +5,40 @@ using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
-using System.Xml;
 using System.Xml.Linq;
 using System.Xml.XPath;
-using Html2Markdown;
+using HtmlAgilityPack;
 
 namespace HtmlToMarkdown
 {
-    class Program
+    internal static class Program
     {
         private static readonly Regex TooManyEmptyLinesRegex = new Regex("[\n\r]{3,}", RegexOptions.Compiled);
         private static readonly Regex TableRegex = new Regex("<table[ \\w\\d=\"-.]+>", RegexOptions.Compiled);
-        private static readonly Regex UselessDivsRegex = new Regex("(\\r?\\n?[ \\t]*<div[ \\w\\d=\"]+>\\r?\\n?)|(<\\/div>)", RegexOptions.Compiled);
-        private static readonly string OutDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory), "UnityDocs");
+
+        private static readonly Regex UselessDivsRegex =
+            new Regex("(\\r?\\n?[ \\t]*<div[ \\w\\d=\\\"]+>\\r?\\n?)|(<\\/?div>)", RegexOptions.Compiled);
+
+        private static readonly string OutDir =
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory), "UnityDocs");
 
         static async Task Main(string[] args)
         {
             var dir = new DirectoryInfo(
                 @"C:\Program Files\Unity\Hub\Editor\2019.1.0b1\Editor\Data\Documentation\en\ScriptReference");
-            var files = dir.GetFiles().Where(x => x.Name != "30_search.html").Take(1).ToArray();
+//            var files = dir.GetFiles().Where(x => x.Name != "30_search.html").ToArray();
+            var files = dir.GetFiles().Where(x => x.Name == "Accessibility.VisionUtility.GetColorBlindSafePalette.html")
+                .ToArray();
             var parallelFiles = files.AsParallel();
 
             if (!Directory.Exists(OutDir))
             {
                 Directory.CreateDirectory(OutDir);
             }
-            
+
             var startTime = DateTime.Now;
             var failed = 0;
-            
+
             var tasks = parallelFiles.Select(fileInfo =>
             {
                 return Task.Run(async () =>
@@ -55,57 +60,99 @@ namespace HtmlToMarkdown
 
             var time = DateTime.Now - startTime;
 
-            Console.WriteLine($"Converted {files.Length:D}x in {time:g}s. Successful: {files.Length - failed} | Failed {failed}");
+            Console.WriteLine(
+                $"Converted {files.Length:D}x in {time:g}s. Successful: {files.Length - failed} | Failed {failed}");
         }
 
-        public static async Task<string> Html2Markdown(string fileName)
+        private static async Task<string> Html2Markdown(string fileName)
         {
             using (var sr = new StreamReader(fileName))
             {
                 var xDoc = await XDocument.LoadAsync(sr, LoadOptions.None, CancellationToken.None);
 
-                var converter = new Converter();
+                var relevantHtml = CleanupDocument(xDoc);
 
-                xDoc.XPathSelectElement(
-                        ".//*[contains(concat(' ', normalize-space(./@class), ' '), ' header-wrapper ')]")
-                    .Remove(); // remove header
-                xDoc.XPathSelectElement(".//div[./@id = 'sidebar']").Remove(); // remove sidebar
+                var parent = XElement.Parse("<div></div>");
+                var section = XElement.Parse(relevantHtml);
+                parent.Add(section);
+                
+                parent.Add(section.Nodes());
+                section.Remove();
 
-                var sections =
-                    xDoc.XPathSelectElements(".//*[contains(concat(' ', normalize-space(./@class), ' '), ' section ')]")
-                        .ToArray();
+                var subSections = parent.XPathSelectElements(".//div[./@class = 'subsection']").ToArray();
+                parent.Add(subSections.Nodes());
+                subSections.Remove();
 
-                // remove footer
-                sections.Last().Remove();
-                xDoc.XPathSelectElement(
-                    ".//*[contains(concat(' ', normalize-space(./@class), ' '), ' footer-wrapper ')]");
+                var str = parent.ToString();
+                
+                str = CustomMarkdown.StrongReplacerStart(str);
+                str = CustomMarkdown.StrongReplacerEnd(str);
+                str = CustomMarkdown.EmReplacerStart(str);
+                str = CustomMarkdown.EmReplacerEnd(str);
+                str = CustomMarkdown.Header1Replacer(str);
+                str = CustomMarkdown.Header2Replacer(str);
+                str = CustomMarkdown.Header3Replacer(str);
+                str = CustomMarkdown.Header4Replacer(str);
+                str = CustomMarkdown.Header5Replacer(str);
+                str = CustomMarkdown.Header6Replacer(str);
+                str = CustomMarkdown.HeaderEndingReplacer(str);
+                str = CustomMarkdown.ParagraphReplacer(str);
+                str = CustomMarkdown.BreakReplacer(str);
+                
+                str = HtmlParser.ReplacePre(str);
+                str = HtmlParser.ReplaceImg(str);
+                str = HtmlParser.ReplacePre(str);
+                
+                str = ConvertTables(str);
+                str = RemoveUselessDivs(str);
+                str = FixTooManyEmptyLines(str);
+                str = FixEmptyStartLines(str);
 
-                // remove feedback buttons
-                xDoc.XPathSelectElement(
-                    ".//*[contains(concat(' ', normalize-space(./@class), ' '), ' otherversionswrapper ')]").Remove();
-                xDoc.XPathSelectElement(
-                    ".//*[contains(concat(' ', normalize-space(./@class), ' '), ' scrollToFeedback ')]").Remove();
+                str = HtmlParser.ReplaceEscapedHtml(str);
+                str = TrimLines(str);
 
-                // remove bad objects
-                xDoc.XPathSelectElements(".//*[contains(concat(' ', normalize-space(./@class), ' '), ' subsection ')]")
-                    .First().Remove();
-                xDoc.XPathSelectElement(".//div[contains(concat(' ', normalize-space(./@class), ' '), ' suggest ')]")
-                    .Remove();
-
-                xDoc.XPathSelectElements(".//div[./@class = 'clear']").Remove();
-
-                var relevantHtml = sections.First().ToString();
-
-
-                var outString = converter.Convert(relevantHtml);
-
-                outString = ConvertTables(outString);
-                outString = RemoveUselessDivs(outString);
-                outString = FixTooManyEmptyLines(outString);
-                outString = FixEmptyStartLines(outString);
-
-                return outString;
+                return str;
             }
+        }
+
+        private static string TrimLines(string str)
+        {
+            var regex = new Regex("[ \t]+\r?$", RegexOptions.Multiline);
+            return regex.Replace(str, "");
+        }
+
+        private static string CleanupDocument(XNode xDoc)
+        {
+            xDoc.XPathSelectElement(
+                    ".//*[contains(concat(' ', normalize-space(./@class), ' '), ' header-wrapper ')]")
+                .Remove(); // remove header
+            xDoc.XPathSelectElement(".//div[./@id = 'sidebar']").Remove(); // remove sidebar
+
+            var sections =
+                xDoc.XPathSelectElements(".//*[contains(concat(' ', normalize-space(./@class), ' '), ' section ')]")
+                    .ToArray();
+
+            // remove footer
+            sections.Last().Remove();
+            xDoc.XPathSelectElement(
+                ".//*[contains(concat(' ', normalize-space(./@class), ' '), ' footer-wrapper ')]");
+
+            // remove feedback buttons
+            xDoc.XPathSelectElement(
+                ".//*[contains(concat(' ', normalize-space(./@class), ' '), ' otherversionswrapper ')]").Remove();
+            xDoc.XPathSelectElement(
+                ".//*[contains(concat(' ', normalize-space(./@class), ' '), ' scrollToFeedback ')]").Remove();
+
+            // remove bad objects
+            xDoc.XPathSelectElements(".//*[contains(concat(' ', normalize-space(./@class), ' '), ' subsection ')]")
+                .First().Remove();
+            xDoc.XPathSelectElement(".//div[contains(concat(' ', normalize-space(./@class), ' '), ' suggest ')]")
+                .Remove();
+
+            xDoc.XPathSelectElements(".//div[./@class = 'clear']").Remove();
+            xDoc.XPathSelectElements(".//a[./@href = '']").Remove();
+
+            return sections.First().ToString();
         }
 
         private static string FixEmptyStartLines(string outString)
