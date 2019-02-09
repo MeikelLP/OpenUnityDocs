@@ -31,9 +31,6 @@ namespace HtmlToMarkdown
 
         public static readonly Func<string, string> Header6Replacer = html => 
             Header6Regex.Replace(html, Environment.NewLine + Environment.NewLine + "###### ");
-        
-        public static readonly Func<string, string> ParagraphReplacer = html => 
-            ParagraphRegex.Replace(html, Environment.NewLine + Environment.NewLine);
 
         public static readonly Func<string, string> EmReplacerStart = html => 
             EmStartRegex.Replace(html, " _");
@@ -53,7 +50,6 @@ namespace HtmlToMarkdown
         private static readonly Regex Header4Regex = new Regex("[\\s]*<h4[^>]*>[\\s]*", RegexOptions.Compiled);
         private static readonly Regex Header5Regex = new Regex("[\\s]*<h5[^>]*>[\\s]*", RegexOptions.Compiled);
         private static readonly Regex Header6Regex = new Regex("[\\s]*<h6[^>]*>[\\s]*", RegexOptions.Compiled);
-        private static readonly Regex ParagraphRegex = new Regex("[\\s]*</?p>[\\s]*", RegexOptions.Compiled);
         private static readonly Regex EmStartRegex = new Regex("[\\s]*<(em|i)>", RegexOptions.Compiled);
         private static readonly Regex EmEndRegex = new Regex("</(em|i)>[\\s]*", RegexOptions.Compiled);
         private static readonly Regex BreakRegex = new Regex("[\\s]*<br[^>]*>[\\s]*", RegexOptions.Compiled);

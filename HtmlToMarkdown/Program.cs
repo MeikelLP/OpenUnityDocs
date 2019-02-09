@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text;
@@ -7,14 +8,19 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Xml.Linq;
 using System.Xml.XPath;
-using HtmlAgilityPack;
 
 namespace HtmlToMarkdown
 {
     internal static class Program
     {
-        private static readonly Regex TooManyEmptyLinesRegex = new Regex("[\n\r]{3,}", RegexOptions.Compiled);
+        private static readonly Regex TooManyEmptyLinesRegex =
+            new Regex("(\r?\n){2,}", RegexOptions.Compiled);
+
         private static readonly Regex TableRegex = new Regex("<table[ \\w\\d=\"-.]+>", RegexOptions.Compiled);
+        private static readonly Regex HtmlToMarkDownLinksRegex = new Regex("", RegexOptions.Compiled);
+
+        private static readonly Regex TrimLinesRegex =
+            new Regex("[ \\t]+\r?$", RegexOptions.Multiline | RegexOptions.Compiled);
 
         private static readonly Regex UselessDivsRegex =
             new Regex("(\\r?\\n?[ \\t]*<div[ \\w\\d=\\\"]+>\\r?\\n?)|(<\\/?div>)", RegexOptions.Compiled);
@@ -22,13 +28,18 @@ namespace HtmlToMarkdown
         private static readonly string OutDir =
             Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory), "UnityDocs");
 
+
         static async Task Main(string[] args)
         {
             var dir = new DirectoryInfo(
                 @"C:\Program Files\Unity\Hub\Editor\2019.1.0b1\Editor\Data\Documentation\en\ScriptReference");
-//            var files = dir.GetFiles().Where(x => x.Name != "30_search.html").ToArray();
+#if !DEBUG
+            var files = dir.GetFiles().Where(x => x.Name != "30_search.html").ToArray();
+#else
             var files = dir.GetFiles().Where(x => x.Name == "Accessibility.VisionUtility.GetColorBlindSafePalette.html")
                 .ToArray();
+            files = files.Take(1).ToArray();
+#endif
             var parallelFiles = files.AsParallel();
 
             if (!Directory.Exists(OutDir))
@@ -37,45 +48,56 @@ namespace HtmlToMarkdown
             }
 
             var startTime = DateTime.Now;
-            var failed = 0;
+            var failed = new List<string>();
 
+#if !DEBUG
             var tasks = parallelFiles.Select(fileInfo =>
             {
                 return Task.Run(async () =>
                 {
-                    try
-                    {
-                        var str = await Html2Markdown(fileInfo.FullName);
-                        var outPath = Path.Combine(OutDir, fileInfo.Name.Replace(".html", ".md"));
-                        await File.WriteAllTextAsync(outPath, str);
-                    }
-                    catch (Exception e)
-                    {
-                        failed++;
-                    }
+#else
+            foreach (var fileInfo in files)
+            {
+#endif
+                try
+                {
+                    var str = await Html2Markdown(fileInfo.FullName);
+                    var outPath = Path.Combine(OutDir, fileInfo.Name.Replace(".html", ".md"));
+                    await File.WriteAllTextAsync(outPath, str);
+                }
+                catch (Exception e)
+                {
+                    failed.Add(fileInfo.FullName);
+                }
+#if !DEBUG
                 });
+            
             });
 
             await Task.WhenAll(tasks);
+#else
+            }
+#endif
+
 
             var time = DateTime.Now - startTime;
 
             Console.WriteLine(
-                $"Converted {files.Length:D}x in {time:g}s. Successful: {files.Length - failed} | Failed {failed}");
+                $"Converted {files.Length:N0}x in {time:g}s. Successful: {files.Length - failed.Count:N0} | Failed {failed.Count:N0}x");
         }
 
         private static async Task<string> Html2Markdown(string fileName)
         {
             using (var sr = new StreamReader(fileName))
             {
-                var xDoc = await XDocument.LoadAsync(sr, LoadOptions.None, CancellationToken.None);
+                var xDoc = await XDocument.LoadAsync(sr, LoadOptions.PreserveWhitespace, CancellationToken.None);
 
                 var relevantHtml = CleanupDocument(xDoc);
 
-                var parent = XElement.Parse("<div></div>");
-                var section = XElement.Parse(relevantHtml);
+                var parent = XElement.Parse("<div></div>", LoadOptions.PreserveWhitespace);
+                var section = XElement.Parse(relevantHtml, LoadOptions.PreserveWhitespace);
                 parent.Add(section);
-                
+
                 parent.Add(section.Nodes());
                 section.Remove();
 
@@ -84,11 +106,18 @@ namespace HtmlToMarkdown
                 subSections.Remove();
 
                 var str = parent.ToString();
-                
+
                 str = CustomMarkdown.StrongReplacerStart(str);
                 str = CustomMarkdown.StrongReplacerEnd(str);
                 str = CustomMarkdown.EmReplacerStart(str);
                 str = CustomMarkdown.EmReplacerEnd(str);
+
+                str = HtmlParser.ReplaceParagraph(str);
+
+                str = HtmlParser.ReplacePre(str);
+                str = HtmlParser.ReplaceImg(str);
+                str = HtmlParser.ReplaceAnchors(str);
+
                 str = CustomMarkdown.Header1Replacer(str);
                 str = CustomMarkdown.Header2Replacer(str);
                 str = CustomMarkdown.Header3Replacer(str);
@@ -96,29 +125,24 @@ namespace HtmlToMarkdown
                 str = CustomMarkdown.Header5Replacer(str);
                 str = CustomMarkdown.Header6Replacer(str);
                 str = CustomMarkdown.HeaderEndingReplacer(str);
-                str = CustomMarkdown.ParagraphReplacer(str);
+
                 str = CustomMarkdown.BreakReplacer(str);
-                
-                str = HtmlParser.ReplacePre(str);
-                str = HtmlParser.ReplaceImg(str);
-                str = HtmlParser.ReplacePre(str);
-                
+
                 str = ConvertTables(str);
                 str = RemoveUselessDivs(str);
                 str = FixTooManyEmptyLines(str);
                 str = FixEmptyStartLines(str);
 
                 str = HtmlParser.ReplaceEscapedHtml(str);
-                str = TrimLines(str);
+                str = FixEndLine(str);
 
                 return str;
             }
         }
 
-        private static string TrimLines(string str)
+        private static string FixEndLine(string str)
         {
-            var regex = new Regex("[ \t]+\r?$", RegexOptions.Multiline);
-            return regex.Replace(str, "");
+            return str.TrimEnd('\r', '\n') + Environment.NewLine;
         }
 
         private static string CleanupDocument(XNode xDoc)
@@ -139,14 +163,14 @@ namespace HtmlToMarkdown
 
             // remove feedback buttons
             xDoc.XPathSelectElement(
-                ".//*[contains(concat(' ', normalize-space(./@class), ' '), ' otherversionswrapper ')]").Remove();
+                ".//*[contains(concat(' ', normalize-space(./@class), ' '), ' otherversionswrapper ')]")?.Remove();
             xDoc.XPathSelectElement(
-                ".//*[contains(concat(' ', normalize-space(./@class), ' '), ' scrollToFeedback ')]").Remove();
+                ".//*[contains(concat(' ', normalize-space(./@class), ' '), ' scrollToFeedback ')]")?.Remove();
 
             // remove bad objects
             xDoc.XPathSelectElements(".//*[contains(concat(' ', normalize-space(./@class), ' '), ' subsection ')]")
-                .First().Remove();
-            xDoc.XPathSelectElement(".//div[contains(concat(' ', normalize-space(./@class), ' '), ' suggest ')]")
+                .FirstOrDefault()?.Remove();
+            xDoc.XPathSelectElement(".//div[contains(concat(' ', normalize-space(./@class), ' '), ' suggest ')]")?
                 .Remove();
 
             xDoc.XPathSelectElements(".//div[./@class = 'clear']").Remove();
@@ -163,12 +187,18 @@ namespace HtmlToMarkdown
 
         private static string FixTooManyEmptyLines(string outString)
         {
+            outString = TrimLinesRegex.Replace(outString, ""); 
             return TooManyEmptyLinesRegex.Replace(outString, Environment.NewLine + Environment.NewLine);
         }
 
         private static string RemoveUselessDivs(string str)
         {
             return UselessDivsRegex.Replace(str, "");
+        }
+
+        private static string FixUrls(string str)
+        {
+            return HtmlToMarkDownLinksRegex.Replace(str, "$1.md");
         }
 
         private static string ConvertTables(string outString)
