@@ -12,6 +12,7 @@
     </PropertyGroup>
 
     <ItemGroup>
+      <PackageReference Include="CommandLineParser" Version="2.4.3" />
       <PackageReference Include="Html2Markdown" Version="3.2.1.341" />
     </ItemGroup>
 

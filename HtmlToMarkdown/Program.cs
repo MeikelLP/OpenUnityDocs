@@ -8,6 +8,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Xml.Linq;
 using System.Xml.XPath;
+using CommandLine;
 
 namespace HtmlToMarkdown
 {
@@ -25,16 +26,28 @@ namespace HtmlToMarkdown
         private static readonly Regex UselessDivsRegex =
             new Regex("(\\r?\\n?[ \\t]*<div[ \\w\\d=\\\"]+>\\r?\\n?)|(<\\/?div>)", RegexOptions.Compiled);
 
-        private static readonly string OutDir =
-            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory), "UnityDocs");
 
-
-        static async Task Main(string[] args)
+        private static async Task Main(string[] args)
         {
-            var dir = new DirectoryInfo(
-                @"C:\Program Files\Unity\Hub\Editor\2019.1.0b1\Editor\Data\Documentation\en\ScriptReference");
+            var options = Parser.Default.ParseArguments<CommandLineArgs>(args).MapResult<CommandLineArgs, CommandLineArgs>(x => x, errors =>
+            {
+                foreach (var error in errors)
+                {
+                    Console.Error.Write(error);
+                }
+
+                return null;
+            });
+
+            if (options == null)
+            {
+                Environment.Exit(1);
+            }
+            
+            options.ValidateOrExit();
+            
 #if !DEBUG
-            var files = dir.GetFiles().Where(x => x.Name != "30_search.html").ToArray();
+            var files = new DirectoryInfo(options.SourcePath).GetFiles().Where(x => x.Name != "30_search.html").ToArray();
 #else
             var files = dir.GetFiles().Where(x => x.Name == "Accessibility.VisionUtility.GetColorBlindSafePalette.html")
                 .ToArray();
@@ -42,9 +55,9 @@ namespace HtmlToMarkdown
 #endif
             var parallelFiles = files.AsParallel();
 
-            if (!Directory.Exists(OutDir))
+            if (!Directory.Exists(options.OutPath))
             {
-                Directory.CreateDirectory(OutDir);
+                Directory.CreateDirectory(options.OutPath);
             }
 
             var startTime = DateTime.Now;
@@ -62,7 +75,7 @@ namespace HtmlToMarkdown
                 try
                 {
                     var str = await Html2Markdown(fileInfo.FullName);
-                    var outPath = Path.Combine(OutDir, fileInfo.Name.Replace(".html", ".md"));
+                    var outPath = Path.Combine(options.OutPath, fileInfo.Name.Replace(".html", ".md"));
                     await File.WriteAllTextAsync(outPath, str);
                 }
                 catch (Exception e)

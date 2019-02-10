@@ -12,6 +12,8 @@ namespace HtmlToMarkdown
 {
     internal static class HtmlParser
     {
+        private static readonly Regex AnchorRegex = new Regex("(.+)\\.html$");
+
         public static string ReplacePre(string html)
         {
             var xElement = XElement.Parse(html, LoadOptions.PreserveWhitespace);
@@ -24,23 +26,8 @@ namespace HtmlToMarkdown
                     anchor.ReplaceWith(anchor.Value);
                 }
                 var breaks = pre.XPathSelectElements(".//br").ToArray();
-                var latestWhiteSpace = "";
                 foreach (var br in breaks)
                 {
-//                    var whiteSpace = latestWhiteSpace;
-//                    var brPreviousNode = (XText)br.PreviousNode;
-//                    if (brPreviousNode != null)
-//                    {
-//                        var regexCount = new Regex("^[\\ ]+", RegexOptions.Multiline | RegexOptions.Compiled);
-//                        var count = regexCount.Matches(brPreviousNode.Value.Split(Environment.NewLine).Last()).Count;
-//                        whiteSpace = new string(Enumerable.Range(0, count).Select(x => ' ').ToArray());
-//                        if (whiteSpace != "")
-//                        {
-//                            latestWhiteSpace = whiteSpace;
-//                        }
-//                    }
-
-//                    br.ReplaceWith(Environment.NewLine + whiteSpace);
                     br.ReplaceWith(Environment.NewLine);
                 }
 
@@ -72,23 +59,27 @@ namespace HtmlToMarkdown
         private static XElement ReplaceAnchors(XElement node)
         {
             var anchors = node.XPathSelectElements(".//a");
-            var regex = new Regex("(.+)\\.html$");
             
             foreach (var anchor in anchors)
             {
-                var text = anchor.Value;
-                var href = regex.Replace(anchor.Attribute("href")?.Value ?? "", "$1.md");
-                var title = anchor.Attribute("title")?.Value;
-
-                if (string.IsNullOrWhiteSpace(title))
-                {
-                    title = text;
-                }
-                
-                anchor.ReplaceWith($"[{text}]({href} \"{title}\")");
+                ReplaceAnchor(anchor);
             }
 
             return node;
+        }
+
+        private static void ReplaceAnchor(XElement anchor)
+        {
+            var text = anchor.Value;
+            var href = AnchorRegex.Replace(anchor.Attribute("href")?.Value ?? "", "$1.md");
+            var title = anchor.Attribute("title")?.Value;
+
+            if (string.IsNullOrWhiteSpace(title))
+            {
+                title = text;
+            }
+
+            anchor.ReplaceWith($"[{text}]({href} \"{title}\")");
         }
 
         public static string ReplaceAnchors(string html)
@@ -98,16 +89,7 @@ namespace HtmlToMarkdown
 
             foreach (var anchor in anchors)
             {
-                var text = anchor.Value;
-                var href = anchor.Attribute("href")?.Value;
-                var title = anchor.Attribute("title")?.Value;
-
-                if (string.IsNullOrWhiteSpace(title))
-                {
-                    title = text;
-                }
-                
-                anchor.ReplaceWith($"[{text}]({href} \"{title}\")");
+                ReplaceAnchor(anchor);
             }
 
             return xElement.ToString();
