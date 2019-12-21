@@ -1,7 +1,7 @@
 using System;
 using System.Text.RegularExpressions;
 
-namespace HtmlToMarkdown
+namespace UnityDocsToMarkdown.Core
 {
     public static class CustomMarkdown
     {
@@ -52,6 +52,22 @@ namespace HtmlToMarkdown
         private static readonly Regex Header6Regex = new Regex("[\\s]*<h6[^>]*>[\\s]*", RegexOptions.Compiled);
         private static readonly Regex EmStartRegex = new Regex("[\\s]*<(em|i)>", RegexOptions.Compiled);
         private static readonly Regex EmEndRegex = new Regex("</(em|i)>[\\s]*", RegexOptions.Compiled);
-        private static readonly Regex BreakRegex = new Regex("[\\s]*<br[^>]*>[\\s]*", RegexOptions.Compiled);
+        private static readonly Regex BreakRegex = new Regex("[\\s]*<br[^>]*>", RegexOptions.Compiled);
+        public static readonly Regex AnchorRegex = new Regex("(.+)\\.html$");
+        public static readonly Regex HeaderRegex = new Regex("h([\\d])", RegexOptions.Compiled);
+        
+        public static readonly Regex TooManyEmptyLinesRegex =
+            new Regex("(\r?\n){2,}", RegexOptions.Compiled);
+
+        public static readonly Regex TableRegex = new Regex("<table[ \\w\\d=\"-.]+>", RegexOptions.Compiled);
+        public static readonly Regex HtmlToMarkDownLinksRegex = new Regex("", RegexOptions.Compiled);
+
+        public static readonly Regex TrimLinesRegex =
+            new Regex("[ \\t]+\r?$", RegexOptions.Multiline | RegexOptions.Compiled);
+
+        public static readonly Regex UselessDivsRegex =
+            new Regex("(\\r?\\n?[ \\t]*<div[ \\w\\d=\\\"]+>\\r?\\n?)|(<\\/?div>)", RegexOptions.Compiled);
+
+
     }
 }
