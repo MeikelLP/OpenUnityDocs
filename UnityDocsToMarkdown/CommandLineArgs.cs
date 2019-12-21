@@ -7,7 +7,7 @@ namespace HtmlToMarkdown
     public class CommandLineArgs
     {
         private const string DefaultSourceDirectory =
-            @"C:\Program Files\Unity\Hub\Editor\2019.1.0b1\Editor\Data\Documentation\en\ScriptReference";
+            @"C:\Program Files\Unity\Hub\Editor\2019.3.0f3\Editor\Data\Documentation\en\ScriptReference";
 
         private static readonly string DefaultOutDirectory =
             Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory), "UnityDocs");
@@ -22,9 +22,9 @@ namespace HtmlToMarkdown
 
         public void ValidateOrExit()
         {
-            var srcPath = !string.IsNullOrWhiteSpace(SourcePath) ? SourcePath : DefaultSourceDirectory;
+            SourcePath = !string.IsNullOrWhiteSpace(SourcePath) ? SourcePath : DefaultSourceDirectory;
 
-            var srcDir = new DirectoryInfo(srcPath);
+            var srcDir = new DirectoryInfo(SourcePath);
 
             if (!srcDir.Exists)
             {
